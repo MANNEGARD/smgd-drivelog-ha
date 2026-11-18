@@ -1,0 +1,26 @@
+"""Konstanter för SMGD DriveLog-integrationen."""
+
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import Final
+
+DOMAIN: Final = "smgd_drivelog"
+NAME: Final = "SMGD DriveLog"
+INTEGRATION_VERSION: Final = "1.6.0"
+
+CONF_URL: Final = "url"
+CONF_TOKEN: Final = "token"
+CONF_NOTIFY_SERVICE: Final = "notify_service"
+CONF_SEND_FEEDBACK: Final = "send_feedback"
+
+# Händelsen som Companion-appen skickar när användaren trycker på en notisknapp.
+EVENT_NOTIFICATION_ACTION: Final = "mobile_app_notification_action"
+
+SERVICE_FLUSH_QUEUE: Final = "flush_queue"
+
+SUMMARY_INTERVAL: Final = timedelta(minutes=5)
+DEFAULT_POLL_INTERVAL: Final = timedelta(seconds=30)  # utkorg och svarskö
+HEARTBEAT_INTERVAL: Final = timedelta(minutes=5)
+
+STORAGE_VERSION: Final = 1

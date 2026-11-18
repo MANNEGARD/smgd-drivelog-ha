@@ -1,0 +1,87 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SMGD DriveLog",
+        "description": "Ange adressen till din SMGD DriveLog och en API-token med behörigheten \"ha\" (skapas i DriveLog under Inställningar → API-tokens).",
+        "data": {
+          "url": "Adress till DriveLog",
+          "token": "API-token",
+          "notify_service": "Notify-tjänst (valfri)"
+        },
+        "data_description": {
+          "url": "T.ex. https://drivelog.example.se",
+          "token": "Visas bara en gång när den skapas.",
+          "notify_service": "Telefonen som ska få notiser, t.ex. notify.mobile_app_min_iphone. Används om ingen enhet är vald i DriveLog."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Ny API-token",
+        "description": "DriveLog på {url} avvisade API-token. Skapa en ny token med behörigheten \"ha\" och klistra in den här.",
+        "data": {
+          "token": "API-token"
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Ogiltig adress – den måste börja med http:// eller https://.",
+      "invalid_auth": "API-token är ogiltig eller återkallad.",
+      "missing_scope": "API-token saknar behörigheten \"ha\".",
+      "cannot_connect": "Kunde inte nå SMGD DriveLog.",
+      "invalid_service": "Välj en tjänst av typen notify.mobile_app_<enhet>.",
+      "unknown": "Oväntat fel."
+    },
+    "abort": {
+      "already_configured": "Den här DriveLog-användaren är redan konfigurerad.",
+      "reauth_successful": "Ny API-token sparad."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Alternativ för SMGD DriveLog",
+        "data": {
+          "notify_service": "Notify-tjänst",
+          "send_feedback": "Visa återkoppling när ett svar inte gick igenom"
+        },
+        "data_description": {
+          "notify_service": "Används om ingen enhet är vald i DriveLog."
+        }
+      }
+    },
+    "error": {
+      "invalid_service": "Välj en tjänst av typen notify.mobile_app_<enhet>."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "review_count": {
+        "name": "Resor att granska"
+      },
+      "pending_questions": {
+        "name": "Obesvarade frågor"
+      },
+      "work_mil_month": {
+        "name": "Tjänstemil denna månad"
+      },
+      "private_mil_month": {
+        "name": "Privata mil denna månad"
+      },
+      "last_sync": {
+        "name": "Senaste synk"
+      }
+    }
+  },
+  "services": {
+    "flush_queue": {
+      "name": "Töm svarskön",
+      "description": "Skickar köade svar till DriveLog direkt och hämtar nya notiser."
+    }
+  },
+  "issues": {
+    "no_phone": {
+      "title": "DriveLog har frågor men ingen telefon är vald",
+      "description": "SMGD DriveLog har notiser som väntar, men ingen telefon (notify.mobile_app_…) är vald. Välj telefonen i DriveLog under Integrationer → Home Assistant, eller i integrationens alternativ. Inget går förlorat: frågorna väntar i DriveLog."
+    }
+  }
+}

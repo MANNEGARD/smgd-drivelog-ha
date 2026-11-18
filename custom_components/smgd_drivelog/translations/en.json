@@ -1,0 +1,87 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SMGD DriveLog",
+        "description": "Enter the address of your SMGD DriveLog and an API token with the \"ha\" scope (created in DriveLog under Settings → API tokens).",
+        "data": {
+          "url": "DriveLog address",
+          "token": "API token",
+          "notify_service": "Notify service (optional)"
+        },
+        "data_description": {
+          "url": "E.g. https://drivelog.example.com",
+          "token": "Only shown once when created.",
+          "notify_service": "The phone that receives notifications, e.g. notify.mobile_app_my_iphone. Used if no device is selected in DriveLog."
+        }
+      },
+      "reauth_confirm": {
+        "title": "New API token",
+        "description": "DriveLog at {url} rejected the API token. Create a new token with the \"ha\" scope and paste it here.",
+        "data": {
+          "token": "API token"
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Invalid address – it must start with http:// or https://.",
+      "invalid_auth": "The API token is invalid or revoked.",
+      "missing_scope": "The API token lacks the \"ha\" scope.",
+      "cannot_connect": "Could not reach SMGD DriveLog.",
+      "invalid_service": "Choose a service of the form notify.mobile_app_<device>.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This DriveLog user is already configured.",
+      "reauth_successful": "New API token saved."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SMGD DriveLog options",
+        "data": {
+          "notify_service": "Notify service",
+          "send_feedback": "Show feedback when an answer could not be applied"
+        },
+        "data_description": {
+          "notify_service": "Used if no device is selected in DriveLog."
+        }
+      }
+    },
+    "error": {
+      "invalid_service": "Choose a service of the form notify.mobile_app_<device>."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "review_count": {
+        "name": "Trips to review"
+      },
+      "pending_questions": {
+        "name": "Unanswered questions"
+      },
+      "work_mil_month": {
+        "name": "Business distance this month"
+      },
+      "private_mil_month": {
+        "name": "Private distance this month"
+      },
+      "last_sync": {
+        "name": "Last sync"
+      }
+    }
+  },
+  "services": {
+    "flush_queue": {
+      "name": "Flush response queue",
+      "description": "Sends queued answers to DriveLog immediately and fetches new notifications."
+    }
+  },
+  "issues": {
+    "no_phone": {
+      "title": "DriveLog has questions but no phone is selected",
+      "description": "SMGD DriveLog has notifications waiting, but no phone (notify.mobile_app_…) is selected. Choose the phone in DriveLog under Integrations → Home Assistant, or in this integration's options. Nothing is lost: the questions wait in DriveLog."
+    }
+  }
+}
