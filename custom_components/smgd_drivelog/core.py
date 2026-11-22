@@ -577,7 +577,17 @@ BRAND_CHANNEL = "SMGD DriveLog"
 BRAND_STATUS_ICON = "mdi:car-clock"
 
 
-def brand_notify_data(data: dict[str, Any], platform: str | None) -> dict[str, Any]:
+def brand_icon_url(base_url: str | None) -> str:
+    """Loggans adress: absolut mot Home Assistants externa adress när den finns, annars relativ.
+
+    En absolut adress når telefonen även utanför hemnätet och utan att Companion-appen behöver
+    tolka en relativ sökväg."""
+    if isinstance(base_url, str) and base_url.startswith(("https://", "http://")):
+        return base_url.rstrip("/") + BRAND_ICON_URL
+    return BRAND_ICON_URL
+
+
+def brand_notify_data(data: dict[str, Any], platform: str | None, icon_url: str = BRAND_ICON_URL) -> dict[str, Any]:
     """Får notisen att se ut att komma från SMGD DriveLog.
 
     Telefonen visar alltid avsändarappens namn (Home Assistant) i den lilla raden överst;
@@ -601,9 +611,9 @@ def brand_notify_data(data: dict[str, Any], platform: str | None) -> dict[str, A
         out["title"] = BRAND_TITLE
         if isinstance(title, str) and title.strip() and title != BRAND_TITLE:
             inner["subtitle"] = title
-        inner["image"] = BRAND_ICON_URL
+        inner["image"] = icon_url
     else:
-        inner["icon_url"] = BRAND_ICON_URL
+        inner["icon_url"] = icon_url
         inner["color"] = BRAND_COLOR
         inner["notification_icon"] = BRAND_STATUS_ICON
         if platform == "android":

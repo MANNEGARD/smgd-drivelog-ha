@@ -14,6 +14,7 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 from homeassistant.util import slugify
@@ -39,6 +40,7 @@ from .core import (
     OUTAGE_TITLE,
     OutageTracker,
     ResponseQueue,
+    brand_icon_url,
     brand_notify_data,
     build_ack,
     build_callback_payload,
@@ -141,8 +143,16 @@ class DriveLogManager:
         entry = self._mobile_app_entry(service)
         return platform_from_os(entry.data.get("os_name")) if entry else None
 
+    def _icon_url(self) -> str:
+        """Loggans adress via Home Assistants externa adress (t.ex. Nabu Casa), annars relativ."""
+        try:
+            base = get_url(self.hass, allow_internal=False, allow_ip=False, prefer_cloud=True)
+        except NoURLAvailableError:
+            base = None
+        return brand_icon_url(base)
+
     def _brand(self, service: str | None, data: dict[str, Any]) -> dict[str, Any]:
-        return brand_notify_data(data, self.platform(service))
+        return brand_notify_data(data, self.platform(service), self._icon_url())
 
     def route_entity(self) -> str | None:
         """Telefonens ``device_tracker`` för resvägen, eller None när insamlingen är av.
