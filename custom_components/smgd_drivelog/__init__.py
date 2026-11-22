@@ -116,6 +116,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: DriveLogConfigEntry) -> 
     entry.async_on_unload(
         async_track_time_interval(hass, manager.async_sync_routes, ROUTE_INTERVAL, name=f"{DOMAIN} resväg")
     )
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass,
+            manager.async_request_location,
+            timedelta(seconds=manager.location_interval),
+            name=f"{DOMAIN} position under färd",
+        )
+    )
     entry.async_create_background_task(hass, manager.async_tick(), name=f"{DOMAIN} första hämtning")
     entry.async_create_background_task(hass, manager.async_sync_routes(), name=f"{DOMAIN} första resväg")
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))

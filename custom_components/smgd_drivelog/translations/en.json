@@ -54,11 +54,13 @@
           "notify_service": "Notify service",
           "send_feedback": "Show feedback when an answer could not be applied",
           "collect_route": "Collect the phone's route while driving",
-          "route_entity": "Phone position (device_tracker)"
+          "route_entity": "Phone position (device_tracker)",
+          "location_interval": "Ask the phone for its position while driving (seconds)"
         },
         "data_description": {
           "notify_service": "Used if no device is selected in DriveLog.",
-          "route_entity": "Only positions within a trip are sent to DriveLog. Empty = the phone that receives the notifications."
+          "route_entity": "Only positions within a trip are sent to DriveLog. Empty = the phone that receives the notifications.",
+          "location_interval": "How often the phone is asked for a new position while the car is driving. iOS may skip some requests at short intervals."
         }
       }
     },

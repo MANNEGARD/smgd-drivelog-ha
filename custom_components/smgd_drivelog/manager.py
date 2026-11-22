@@ -21,14 +21,20 @@ from homeassistant.util import slugify
 from .api import DriveLogApiClient, DriveLogAuthError, DriveLogConnectionError, DriveLogError, DriveLogRejectedError
 from .const import (
     CONF_COLLECT_ROUTE,
+    CONF_LOCATION_INTERVAL,
     CONF_NOTIFY_SERVICE,
     CONF_ROUTE_ENTITY,
     CONF_SEND_FEEDBACK,
+    DEFAULT_LOCATION_INTERVAL,
     DOMAIN,
     INTEGRATION_VERSION,
+    MAX_LOCATION_INTERVAL,
+    MIN_LOCATION_INTERVAL,
+    TRACKING_STALE_AFTER,
     STORAGE_VERSION,
 )
 from .core import (
+    LOCATION_REQUEST,
     ISSUE_NO_PHONE,
     OUTAGE_TITLE,
     OutageTracker,
@@ -38,6 +44,7 @@ from .core import (
     build_callback_payload,
     build_heartbeat,
     feedback_message,
+    location_interval,
     missing_phone_count,
     mobile_app_services,
     parse_outbox,
@@ -46,6 +53,7 @@ from .core import (
     platform_from_os,
     route_points,
     select_service,
+    should_request_location,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,6 +84,11 @@ class DriveLogManager:
         self.last_route_at: datetime | None = None
         self.last_route_error: str | None = None
         self.routes_sent = 0
+        # 1.8.2: positionsbegäran medan bilen körs.
+        self.tracking = False
+        self._tracking_at: float | None = None
+        self._last_location_request: float | None = None
+        self.location_requests = 0
         self.delivery_mode: str | None = None
         self.server_notify_service: str | None = None
         self.server_version: str | None = None
@@ -284,6 +297,8 @@ class DriveLogManager:
             self.outage.success()
             self.last_outbox_at = dt_util.utcnow()
             self.delivery_mode = body.get("delivery_mode") if isinstance(body, dict) else None
+            self.tracking = bool(body.get("track_position")) if isinstance(body, dict) else False
+            self._tracking_at = time.time()
             deliveries, failed = parse_outbox(
                 body, self.server_notify_service or self.configured_service, available=self.available_services()
             )
@@ -369,6 +384,44 @@ class DriveLogManager:
 
         return await get_instance(self.hass).async_add_executor_job(_read)
 
+    @property
+    def location_interval(self) -> int:
+        return location_interval(
+            self.entry.options.get(CONF_LOCATION_INTERVAL),
+            DEFAULT_LOCATION_INTERVAL,
+            MIN_LOCATION_INTERVAL,
+            MAX_LOCATION_INTERVAL,
+        )
+
+    async def async_request_location(self, _now: datetime | None = None) -> bool:
+        """Ber telefonen om en ny position medan bilen körs (dolt kommando, ingen notis syns).
+
+        Kommandot räknas inte mot Companion-appens gräns för notiser. Utan ett färskt besked
+        från DriveLog om att bilen körs görs ingenting."""
+        now = time.time()
+        if not should_request_location(
+            tracking=self.tracking,
+            tracking_at=self._tracking_at,
+            last_request=self._last_location_request,
+            now=now,
+            interval=self.location_interval,
+            stale_after=TRACKING_STALE_AFTER.total_seconds(),
+        ):
+            return False
+        if self.route_entity() is None:
+            return False
+        service = self.selected_service()
+        if service is None:
+            return False
+        self._last_location_request = now
+        try:
+            await self.hass.services.async_call("notify", service, dict(LOCATION_REQUEST), blocking=True)
+        except HomeAssistantError as err:
+            _LOGGER.debug("Kunde inte be telefonen om position: %s", err)
+            return False
+        self.location_requests += 1
+        return True
+
     async def async_sync_routes(self, _now: datetime | None = None) -> int:
         """Skickar telefonens positioner för resor som DriveLog saknar resväg för.
 
@@ -432,4 +485,7 @@ class DriveLogManager:
             "routes_sent": self.routes_sent,
             "last_route_at": self.last_route_at.isoformat() if self.last_route_at else None,
             "last_route_error": self.last_route_error,
+            "tracking": self.tracking,
+            "location_interval": self.location_interval,
+            "location_requests": self.location_requests,
         }

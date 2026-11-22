@@ -15,6 +15,9 @@ from homeassistant.helpers.selector import (
     BooleanSelector,
     EntitySelector,
     EntitySelectorConfig,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -26,12 +29,16 @@ from homeassistant.helpers.selector import (
 from .api import DriveLogApiClient, DriveLogAuthError, DriveLogError
 from .const import (
     CONF_COLLECT_ROUTE,
+    CONF_LOCATION_INTERVAL,
     CONF_NOTIFY_SERVICE,
     CONF_ROUTE_ENTITY,
     CONF_SEND_FEEDBACK,
     CONF_TOKEN,
     CONF_URL,
+    DEFAULT_LOCATION_INTERVAL,
     DOMAIN,
+    MAX_LOCATION_INTERVAL,
+    MIN_LOCATION_INTERVAL,
     NAME,
 )
 from .core import (
@@ -195,6 +202,7 @@ class DriveLogOptionsFlow(OptionsFlow):
                         CONF_SEND_FEEDBACK: bool(user_input.get(CONF_SEND_FEEDBACK, True)),
                         CONF_COLLECT_ROUTE: bool(user_input.get(CONF_COLLECT_ROUTE, True)),
                         CONF_ROUTE_ENTITY: user_input.get(CONF_ROUTE_ENTITY) or None,
+                        CONF_LOCATION_INTERVAL: int(user_input.get(CONF_LOCATION_INTERVAL, DEFAULT_LOCATION_INTERVAL)),
                     }
                 )
         default_service = f"notify.{current[CONF_NOTIFY_SERVICE]}" if current.get(CONF_NOTIFY_SERVICE) else None
@@ -205,6 +213,14 @@ class DriveLogOptionsFlow(OptionsFlow):
             fields[vol.Optional(CONF_NOTIFY_SERVICE)] = _service_selector(self.hass)
         fields[vol.Optional(CONF_SEND_FEEDBACK, default=current.get(CONF_SEND_FEEDBACK, True))] = BooleanSelector()
         fields[vol.Optional(CONF_COLLECT_ROUTE, default=current.get(CONF_COLLECT_ROUTE, True))] = BooleanSelector()
+        fields[
+            vol.Optional(CONF_LOCATION_INTERVAL, default=current.get(CONF_LOCATION_INTERVAL, DEFAULT_LOCATION_INTERVAL))
+        ] = NumberSelector(
+            NumberSelectorConfig(
+                min=MIN_LOCATION_INTERVAL, max=MAX_LOCATION_INTERVAL, step=5, unit_of_measurement="s",
+                mode=NumberSelectorMode.BOX,
+            )
+        )
         tracker = EntitySelector(EntitySelectorConfig(domain="device_tracker"))
         if current.get(CONF_ROUTE_ENTITY):
             fields[vol.Optional(CONF_ROUTE_ENTITY, default=current[CONF_ROUTE_ENTITY])] = tracker

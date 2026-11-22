@@ -699,3 +699,25 @@ def route_points(
         step = (len(points) - 1) / (max_points - 1)
         points = [points[round(i * step)] for i in range(max_points)]
     return points
+
+
+# ----------------------------------------------------------------------------- positionsbegäran under färd (1.8.2)
+
+LOCATION_REQUEST = {"message": "request_location_update"}
+
+
+def location_interval(value: Any, default: int, lo: int, hi: int) -> int:
+    """Sekunder mellan positionsbegäran, begränsat till [lo, hi]."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return default
+    return int(min(hi, max(lo, value)))
+
+
+def should_request_location(
+    *, tracking: bool, tracking_at: float | None, last_request: float | None, now: float,
+    interval: float, stale_after: float,
+) -> bool:
+    """Ska telefonen tillfrågas nu? Bara när DriveLog nyligen sagt att bilen körs."""
+    if not tracking or tracking_at is None or now - tracking_at > stale_after:
+        return False
+    return last_request is None or now - last_request >= interval - 0.5
