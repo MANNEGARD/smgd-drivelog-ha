@@ -21,6 +21,14 @@
         "data": {
           "token": "API-token"
         }
+      },
+      "reconfigure": {
+        "title": "Byt adress",
+        "description": "Ange den nya adressen till SMGD DriveLog, t.ex. https://smgd.se/drivelog. Lämna token tom för att behålla den sparade.",
+        "data": {
+          "url": "Adress till DriveLog",
+          "token": "API-token (valfri)"
+        }
       }
     },
     "error": {
@@ -29,11 +37,13 @@
       "missing_scope": "API-token saknar behörigheten \"ha\".",
       "cannot_connect": "Kunde inte nå SMGD DriveLog.",
       "invalid_service": "Välj en tjänst av typen notify.mobile_app_<enhet>.",
-      "unknown": "Oväntat fel."
+      "unknown": "Oväntat fel.",
+      "wrong_account": "Adressen hör till en annan DriveLog-användare."
     },
     "abort": {
       "already_configured": "Den här DriveLog-användaren är redan konfigurerad.",
-      "reauth_successful": "Ny API-token sparad."
+      "reauth_successful": "Ny API-token sparad.",
+      "reconfigure_successful": "Den nya adressen är sparad."
     }
   },
   "options": {
@@ -42,10 +52,13 @@
         "title": "Alternativ för SMGD DriveLog",
         "data": {
           "notify_service": "Notify-tjänst",
-          "send_feedback": "Visa återkoppling när ett svar inte gick igenom"
+          "send_feedback": "Visa återkoppling när ett svar inte gick igenom",
+          "collect_route": "Spara telefonens resväg under färd",
+          "route_entity": "Telefonens position (device_tracker)"
         },
         "data_description": {
-          "notify_service": "Används om ingen enhet är vald i DriveLog."
+          "notify_service": "Används om ingen enhet är vald i DriveLog.",
+          "route_entity": "Bara positioner inom en resa skickas till DriveLog. Tomt = telefonen som får notiserna."
         }
       }
     },

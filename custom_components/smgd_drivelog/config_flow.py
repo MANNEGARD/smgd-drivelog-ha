@@ -13,6 +13,8 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    EntitySelector,
+    EntitySelectorConfig,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -22,7 +24,16 @@ from homeassistant.helpers.selector import (
 )
 
 from .api import DriveLogApiClient, DriveLogAuthError, DriveLogError
-from .const import CONF_NOTIFY_SERVICE, CONF_SEND_FEEDBACK, CONF_TOKEN, CONF_URL, DOMAIN, NAME
+from .const import (
+    CONF_COLLECT_ROUTE,
+    CONF_NOTIFY_SERVICE,
+    CONF_ROUTE_ENTITY,
+    CONF_SEND_FEEDBACK,
+    CONF_TOKEN,
+    CONF_URL,
+    DOMAIN,
+    NAME,
+)
 from .core import (
     mobile_app_services,
     normalize_base_url,
@@ -126,6 +137,41 @@ class DriveLogConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Ny adress (t.ex. när DriveLog flyttar till https://smgd.se/drivelog) utan att ta bort integrationen.
+
+        Token kan lämnas tom – då prövas den sparade mot den nya adressen. Samma DriveLog-användare krävs, så att
+        sensorerna och historiken hör till rätt konto."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            token = (user_input.get(CONF_TOKEN) or "").strip() or entry.data[CONF_TOKEN]
+            info, errors = await _validate(self.hass, user_input[CONF_URL], token)
+            if not errors:
+                gammal_anvandare = (entry.unique_id or "").rpartition("|")[2]
+                ny_anvandare = (info.get("user") or "").lower()
+                if gammal_anvandare and ny_anvandare != gammal_anvandare:
+                    errors["base"] = "wrong_account"
+            if not errors:
+                self.hass.config_entries.async_update_entry(
+                    entry, unique_id=f"{info['url']}|{info.get('user') or ''}".lower()
+                )
+                return self.async_update_reload_and_abort(
+                    entry, data={**entry.data, CONF_URL: info["url"], CONF_TOKEN: token}, reason="reconfigure_successful"
+                )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_URL, default=entry.data[CONF_URL]): TextSelector(
+                        TextSelectorConfig(type=TextSelectorType.URL)
+                    ),
+                    vol.Optional(CONF_TOKEN): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+                }
+            ),
+            errors=errors,
+        )
+
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
@@ -133,7 +179,7 @@ class DriveLogConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class DriveLogOptionsFlow(OptionsFlow):
-    """Alternativ: vilken telefon notiser skickas till och om återkoppling visas."""
+    """Alternativ: vilken telefon notiser skickas till, om återkoppling visas och resvägen (1.8.0)."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -147,6 +193,8 @@ class DriveLogOptionsFlow(OptionsFlow):
                     data={
                         CONF_NOTIFY_SERVICE: notify_service_name(service) if service else None,
                         CONF_SEND_FEEDBACK: bool(user_input.get(CONF_SEND_FEEDBACK, True)),
+                        CONF_COLLECT_ROUTE: bool(user_input.get(CONF_COLLECT_ROUTE, True)),
+                        CONF_ROUTE_ENTITY: user_input.get(CONF_ROUTE_ENTITY) or None,
                     }
                 )
         default_service = f"notify.{current[CONF_NOTIFY_SERVICE]}" if current.get(CONF_NOTIFY_SERVICE) else None
@@ -156,4 +204,10 @@ class DriveLogOptionsFlow(OptionsFlow):
         else:
             fields[vol.Optional(CONF_NOTIFY_SERVICE)] = _service_selector(self.hass)
         fields[vol.Optional(CONF_SEND_FEEDBACK, default=current.get(CONF_SEND_FEEDBACK, True))] = BooleanSelector()
+        fields[vol.Optional(CONF_COLLECT_ROUTE, default=current.get(CONF_COLLECT_ROUTE, True))] = BooleanSelector()
+        tracker = EntitySelector(EntitySelectorConfig(domain="device_tracker"))
+        if current.get(CONF_ROUTE_ENTITY):
+            fields[vol.Optional(CONF_ROUTE_ENTITY, default=current[CONF_ROUTE_ENTITY])] = tracker
+        else:
+            fields[vol.Optional(CONF_ROUTE_ENTITY)] = tracker
         return self.async_show_form(step_id="init", data_schema=vol.Schema(fields), errors=errors)

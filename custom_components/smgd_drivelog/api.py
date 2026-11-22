@@ -13,6 +13,8 @@ from .core import (
     PATH_HEARTBEAT,
     PATH_OUTBOX,
     PATH_OUTBOX_ACK,
+    PATH_ROUTE,
+    PATH_ROUTE_REQUESTS,
     PATH_SUMMARY,
     PATH_WHOAMI,
     api_url,
@@ -89,3 +91,9 @@ class DriveLogApiClient:
 
     async def callback(self, body: dict[str, Any]) -> dict[str, Any]:
         return await self._request("POST", PATH_CALLBACK, body)
+
+    async def route_requests(self) -> dict[str, Any]:
+        return await self._request("GET", PATH_ROUTE_REQUESTS)
+
+    async def route(self, body: dict[str, Any]) -> dict[str, Any]:
+        return await self._request("POST", PATH_ROUTE, body)

@@ -16,6 +16,7 @@ import ipaddress
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -28,6 +29,8 @@ PATH_OUTBOX = f"{API_PREFIX}/ha/outbox"
 PATH_OUTBOX_ACK = f"{API_PREFIX}/ha/outbox/ack"
 PATH_HEARTBEAT = f"{API_PREFIX}/ha/heartbeat"
 PATH_CALLBACK = f"{API_PREFIX}/ha/callback"
+PATH_ROUTE_REQUESTS = f"{API_PREFIX}/ha/route/requests"
+PATH_ROUTE = f"{API_PREFIX}/ha/route"
 
 REQUIRED_SCOPE = "ha"
 
@@ -175,14 +178,18 @@ def build_heartbeat(
     services: list[str],
     selected: str | None,
     queue_length: int,
+    route_entity: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    body: dict[str, Any] = {
         "ha_version": (ha_version or None) and str(ha_version)[:40],
         "integration_version": integration_version[:40],
         "notify_services": mobile_app_services(services)[:100],
         "notify_service": notify_service_name(selected),
         "queue_length": max(0, int(queue_length)),
     }
+    if route_entity:
+        body["route_entity"] = str(route_entity)[:120]
+    return body
 
 
 # ----------------------------------------------------------------------------- utkorg (pull)
@@ -557,3 +564,138 @@ def classify_status(status: int) -> str:
     if status in (408, 425, 429) or status >= 500:
         return "retry"
     return "reject"
+
+
+# ----------------------------------------------------------------------------- notisernas utseende
+
+BRAND_TITLE = "SMGD DriveLog"
+# Appikonen (brand/icon@2x.png) som integrationen själv serverar i Home Assistant. Companion-
+# appen hämtar relativa adresser från Home Assistant, så ingen publik adress behövs.
+BRAND_ICON_URL = "/smgd_drivelog/icon.png"
+BRAND_COLOR = "#2b5c8f"
+BRAND_CHANNEL = "SMGD DriveLog"
+BRAND_STATUS_ICON = "mdi:car-clock"
+
+
+def brand_notify_data(data: dict[str, Any], platform: str | None) -> dict[str, Any]:
+    """Får notisen att se ut att komma från SMGD DriveLog.
+
+    Telefonen visar alltid avsändarappens namn (Home Assistant) i den lilla raden överst;
+    det går inte att ändra. Därunder:
+
+    * iOS: rubriken blir "SMGD DriveLog", frågans rubrik blir underrubrik och loggan visas
+      som miniatyr till höger (``image``).
+    * Android: frågans rubrik behålls (Android saknar underrubrik); loggan blir notisens
+      ikon (``icon_url``), färgen DriveLogs blå och notiserna hamnar i en egen kanal.
+    * Okänd telefon: som Android, men utan kanalbyte – rubriken lämnas orörd.
+
+    ``clear_notification`` och annat utan text lämnas orört.
+    """
+    message = data.get("message")
+    if not isinstance(message, str) or message.strip() == _CLEAR:
+        return data
+    out: dict[str, Any] = dict(data)
+    inner: dict[str, Any] = dict(out["data"]) if isinstance(out.get("data"), dict) else {}
+    if platform == "ios":
+        title = out.get("title")
+        out["title"] = BRAND_TITLE
+        if isinstance(title, str) and title.strip() and title != BRAND_TITLE:
+            inner["subtitle"] = title
+        inner["image"] = BRAND_ICON_URL
+    else:
+        inner["icon_url"] = BRAND_ICON_URL
+        inner["color"] = BRAND_COLOR
+        inner["notification_icon"] = BRAND_STATUS_ICON
+        if platform == "android":
+            inner["channel"] = BRAND_CHANNEL
+    out["data"] = inner
+    return out
+
+
+def platform_from_os(os_name: Any) -> str | None:
+    """Companion-appens ``os_name`` (t.ex. "iOS", "iPadOS", "Android") → ios | android | None."""
+    if not isinstance(os_name, str):
+        return None
+    name = os_name.strip().lower()
+    if name in ("ios", "ipados", "macos") or name.startswith("ios"):
+        return "ios"
+    if name.startswith("android"):
+        return "android"
+    return None
+
+
+# ----------------------------------------------------------------------------- resväg (1.8.0)
+
+MAX_ROUTE_POINTS = 3000
+MAX_ROUTE_REQUESTS = 20
+
+
+@dataclass
+class RouteRequest:
+    trip_id: str
+    start: datetime
+    end: datetime
+
+
+def _parse_time(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else None
+
+
+def parse_route_requests(body: Any) -> tuple[list[RouteRequest], int]:
+    """Tolkar ``GET /ha/route/requests``: (förfrågningar, högsta antal punkter per resa)."""
+    items = body.get("items") if isinstance(body, dict) else None
+    out: list[RouteRequest] = []
+    for raw in items or []:
+        if not isinstance(raw, dict) or not isinstance(raw.get("trip_id"), str):
+            continue
+        start, end = _parse_time(raw.get("start")), _parse_time(raw.get("end"))
+        if start is None or end is None or end <= start:
+            continue
+        out.append(RouteRequest(trip_id=raw["trip_id"][:64], start=start, end=end))
+        if len(out) >= MAX_ROUTE_REQUESTS:
+            break
+    max_points = body.get("max_points") if isinstance(body, dict) else None
+    if not isinstance(max_points, int) or not 2 <= max_points <= MAX_ROUTE_POINTS:
+        max_points = MAX_ROUTE_POINTS
+    return out, max_points
+
+
+def _coord(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
+
+
+def route_points(
+    history: list[tuple[float, Any]], start: float, end: float, max_points: int = MAX_ROUTE_POINTS
+) -> list[dict[str, Any]]:
+    """Telefonens positioner inom [start, end] ur HA:s historik.
+
+    ``history`` är (unix-tid, attribut) per tillstånd för telefonens ``device_tracker``.
+    Bara ``latitude``, ``longitude`` och ``gps_accuracy`` läses; allt annat (zoner, batteri,
+    adresser) skickas aldrig. Fler än ``max_points`` punkter glesas ut jämnt."""
+    points: list[dict[str, Any]] = []
+    for t, attrs in history:
+        if not isinstance(attrs, dict) or not start <= t <= end:
+            continue
+        lat, lon = _coord(attrs.get("latitude")), _coord(attrs.get("longitude"))
+        if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            continue
+        acc = _coord(attrs.get("gps_accuracy"))
+        point = {"t": round(t, 3), "lat": lat, "lon": lon}
+        if acc is not None:
+            point["acc"] = acc
+        if points and points[-1]["lat"] == lat and points[-1]["lon"] == lon:
+            continue
+        points.append(point)
+    points.sort(key=lambda p: p["t"])
+    if len(points) > max_points >= 2:
+        step = (len(points) - 1) / (max_points - 1)
+        points = [points[round(i * step)] for i in range(max_points)]
+    return points

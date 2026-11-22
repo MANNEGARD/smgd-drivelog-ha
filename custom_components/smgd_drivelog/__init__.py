@@ -9,8 +9,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 
 import voluptuous as vol
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
@@ -30,11 +32,12 @@ from .const import (
     DOMAIN,
     EVENT_NOTIFICATION_ACTION,
     HEARTBEAT_INTERVAL,
+    ROUTE_INTERVAL,
     SERVICE_FLUSH_QUEUE,
     STORAGE_VERSION,
 )
 from .coordinator import DriveLogCoordinator
-from .core import ISSUE_NO_PHONE, is_drivelog_action
+from .core import BRAND_ICON_URL, ISSUE_NO_PHONE, is_drivelog_action
 from .manager import DriveLogManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,6 +67,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 await data.manager.async_poll_outbox()
 
     hass.services.async_register(DOMAIN, SERVICE_FLUSH_QUEUE, _flush, schema=vol.Schema({}))
+    # Loggan i notiserna: Companion-appen hämtar den härifrån (relativ adress, ingen inloggning).
+    icon = Path(__file__).parent / "brand" / "icon@2x.png"
+    try:
+        await hass.http.async_register_static_paths([StaticPathConfig(BRAND_ICON_URL, str(icon), True)])
+    except RuntimeError:  # redan registrerad (t.ex. efter omladdning)
+        _LOGGER.debug("Loggans adress %s finns redan", BRAND_ICON_URL)
     return True
 
 
@@ -104,7 +113,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: DriveLogConfigEntry) -> 
     entry.async_on_unload(
         async_track_time_interval(hass, _heartbeat_job(manager), HEARTBEAT_INTERVAL, name=f"{DOMAIN} livstecken")
     )
+    entry.async_on_unload(
+        async_track_time_interval(hass, manager.async_sync_routes, ROUTE_INTERVAL, name=f"{DOMAIN} resväg")
+    )
     entry.async_create_background_task(hass, manager.async_tick(), name=f"{DOMAIN} första hämtning")
+    entry.async_create_background_task(hass, manager.async_sync_routes(), name=f"{DOMAIN} första resväg")
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

@@ -21,6 +21,14 @@
         "data": {
           "token": "API token"
         }
+      },
+      "reconfigure": {
+        "title": "Change address",
+        "description": "Enter the new address of your SMGD DriveLog, e.g. https://smgd.se/drivelog. Leave the token empty to keep the saved one.",
+        "data": {
+          "url": "DriveLog address",
+          "token": "API token (optional)"
+        }
       }
     },
     "error": {
@@ -29,11 +37,13 @@
       "missing_scope": "The API token lacks the \"ha\" scope.",
       "cannot_connect": "Could not reach SMGD DriveLog.",
       "invalid_service": "Choose a service of the form notify.mobile_app_<device>.",
-      "unknown": "Unexpected error."
+      "unknown": "Unexpected error.",
+      "wrong_account": "The address belongs to a different DriveLog user."
     },
     "abort": {
       "already_configured": "This DriveLog user is already configured.",
-      "reauth_successful": "New API token saved."
+      "reauth_successful": "New API token saved.",
+      "reconfigure_successful": "New address saved."
     }
   },
   "options": {
@@ -42,10 +52,13 @@
         "title": "SMGD DriveLog options",
         "data": {
           "notify_service": "Notify service",
-          "send_feedback": "Show feedback when an answer could not be applied"
+          "send_feedback": "Show feedback when an answer could not be applied",
+          "collect_route": "Collect the phone's route while driving",
+          "route_entity": "Phone position (device_tracker)"
         },
         "data_description": {
-          "notify_service": "Used if no device is selected in DriveLog."
+          "notify_service": "Used if no device is selected in DriveLog.",
+          "route_entity": "Only positions within a trip are sent to DriveLog. Empty = the phone that receives the notifications."
         }
       }
     },

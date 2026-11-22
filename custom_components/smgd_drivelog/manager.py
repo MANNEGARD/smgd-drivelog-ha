@@ -5,20 +5,24 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
+from homeassistant.util import slugify
 
 from .api import DriveLogApiClient, DriveLogAuthError, DriveLogConnectionError, DriveLogError, DriveLogRejectedError
 from .const import (
+    CONF_COLLECT_ROUTE,
     CONF_NOTIFY_SERVICE,
+    CONF_ROUTE_ENTITY,
     CONF_SEND_FEEDBACK,
     DOMAIN,
     INTEGRATION_VERSION,
@@ -29,6 +33,7 @@ from .core import (
     OUTAGE_TITLE,
     OutageTracker,
     ResponseQueue,
+    brand_notify_data,
     build_ack,
     build_callback_payload,
     build_heartbeat,
@@ -36,7 +41,10 @@ from .core import (
     missing_phone_count,
     mobile_app_services,
     parse_outbox,
+    parse_route_requests,
     phone_issue_action,
+    platform_from_os,
+    route_points,
     select_service,
 )
 
@@ -64,6 +72,10 @@ class DriveLogManager:
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.responses")
         self._flush_lock = asyncio.Lock()
         self._outbox_lock = asyncio.Lock()
+        self._route_lock = asyncio.Lock()
+        self.last_route_at: datetime | None = None
+        self.last_route_error: str | None = None
+        self.routes_sent = 0
         self.delivery_mode: str | None = None
         self.server_notify_service: str | None = None
         self.server_version: str | None = None
@@ -101,6 +113,42 @@ class DriveLogManager:
         """DriveLogs val, annars integrationens, annars den enda telefonen i Home Assistant."""
         return select_service(self.server_notify_service, self.configured_service, available=self.available_services())
 
+    def _mobile_app_entry(self, service: str | None) -> ConfigEntry | None:
+        """Companion-appens konfigurationspost för ``mobile_app_<enhet>``."""
+        if not service:
+            return None
+        for entry in self.hass.config_entries.async_entries("mobile_app"):
+            name = entry.data.get("device_name")
+            if isinstance(name, str) and f"mobile_app_{slugify(name)}" == service:
+                return entry
+        return None
+
+    def platform(self, service: str | None) -> str | None:
+        """ios | android | None för telefonen bakom notify-tjänsten."""
+        entry = self._mobile_app_entry(service)
+        return platform_from_os(entry.data.get("os_name")) if entry else None
+
+    def _brand(self, service: str | None, data: dict[str, Any]) -> dict[str, Any]:
+        return brand_notify_data(data, self.platform(service))
+
+    def route_entity(self) -> str | None:
+        """Telefonens ``device_tracker`` för resvägen, eller None när insamlingen är av.
+
+        Valt i alternativen, annars positionen från samma telefon som får notiserna."""
+        opts = self.entry.options
+        if not opts.get(CONF_COLLECT_ROUTE, True):
+            return None
+        configured = opts.get(CONF_ROUTE_ENTITY)
+        if isinstance(configured, str) and configured.startswith(("device_tracker.", "person.")):
+            return configured
+        entry = self._mobile_app_entry(self.selected_service())
+        if entry is None:
+            return None
+        for ent in er.async_entries_for_config_entry(er.async_get(self.hass), entry.entry_id):
+            if ent.domain == "device_tracker" and not ent.disabled:
+                return ent.entity_id
+        return None
+
     @property
     def _issue_id(self) -> str:
         return f"{ISSUE_NO_PHONE}_{self.entry.entry_id}"
@@ -134,7 +182,10 @@ class DriveLogManager:
             return
         try:
             await self.hass.services.async_call(
-                "notify", service, {"title": OUTAGE_TITLE, "message": self.outage.message()}, blocking=True
+                "notify",
+                service,
+                self._brand(service, {"title": OUTAGE_TITLE, "message": self.outage.message()}),
+                blocking=True,
             )
         except HomeAssistantError as err:
             _LOGGER.debug("Kunde inte visa notisen om avbrottet: %s", err)
@@ -210,7 +261,7 @@ class DriveLogManager:
             return
         try:
             await self.hass.services.async_call(
-                "notify", service, {"title": "SMGD DriveLog", "message": message}, blocking=True
+                "notify", service, self._brand(service, {"title": "SMGD DriveLog", "message": message}), blocking=True
             )
         except HomeAssistantError as err:
             _LOGGER.debug("Kunde inte visa återkoppling: %s", err)
@@ -240,7 +291,9 @@ class DriveLogManager:
             delivered: list[str] = []
             for item in deliveries:
                 try:
-                    await self.hass.services.async_call("notify", item.service, item.data, blocking=True)
+                    await self.hass.services.async_call(
+                        "notify", item.service, self._brand(item.service, item.data), blocking=True
+                    )
                 except HomeAssistantError as err:  # ServiceNotFound ärver HomeAssistantError
                     failed.append({"id": item.id, "error": f"notify.{item.service}: {err}"})
                     continue
@@ -265,6 +318,7 @@ class DriveLogManager:
             services=self.available_services(),
             selected=self.configured_service,
             queue_length=len(self.queue),
+            route_entity=self.route_entity(),
         )
         try:
             result = await self.client.heartbeat(body)
@@ -290,6 +344,74 @@ class DriveLogManager:
             await self.async_flush_queue()
         await self.async_poll_outbox()
 
+    # ------------------------------------------------------------------ resväg (1.8.0)
+
+    async def _async_history(self, entity_id: str, start: datetime, end: datetime) -> list[tuple[float, Any]]:
+        """(unix-tid, attribut) för varje uppdatering av entiteten ur HA:s historik."""
+        from homeassistant.components.recorder import get_instance, history
+
+        def _read() -> list[tuple[float, Any]]:
+            states = history.get_significant_states(
+                self.hass,
+                start,
+                end,
+                entity_ids=[entity_id],
+                include_start_time_state=False,
+                significant_changes_only=False,
+                minimal_response=False,
+                no_attributes=False,
+            )
+            return [
+                (st.last_updated.timestamp(), dict(st.attributes))
+                for st in states.get(entity_id, [])
+                if hasattr(st, "last_updated")
+            ]
+
+        return await get_instance(self.hass).async_add_executor_job(_read)
+
+    async def async_sync_routes(self, _now: datetime | None = None) -> int:
+        """Skickar telefonens positioner för resor som DriveLog saknar resväg för.
+
+        Bara punkter inom resans tid lämnar Home Assistant. Returnerar antalet resor som skickats."""
+        entity_id = self.route_entity()
+        if entity_id is None or "recorder" not in self.hass.config.components:
+            return 0
+        async with self._route_lock:
+            try:
+                requests, max_points = parse_route_requests(await self.client.route_requests())
+            except DriveLogAuthError as err:
+                self._auth_failed(err)
+                return 0
+            except DriveLogError as err:
+                self.last_route_error = str(err)
+                return 0
+            sent = 0
+            for req in requests:
+                try:
+                    # Historiken tar inte med slutpunkten; en sekund extra fångar en punkt exakt vid målet.
+                    rows = await self._async_history(entity_id, req.start, req.end + timedelta(seconds=1))
+                except Exception as err:  # noqa: BLE001 – historiken är en bekvämlighet, resten ska fortsätta
+                    self.last_route_error = f"Historiken kunde inte läsas: {type(err).__name__}"
+                    _LOGGER.debug("Kunde inte läsa historiken för %s: %s", entity_id, err)
+                    return sent
+                points = route_points(rows, req.start.timestamp(), req.end.timestamp(), max_points)
+                try:
+                    await self.client.route({"trip_id": req.trip_id, "entity_id": entity_id, "points": points})
+                except DriveLogRejectedError as err:
+                    _LOGGER.debug("DriveLog avvisade resvägen för %s: %s", req.trip_id, err)
+                    continue
+                except DriveLogAuthError as err:
+                    self._auth_failed(err)
+                    return sent
+                except DriveLogError as err:
+                    self.last_route_error = str(err)
+                    return sent
+                sent += 1
+            self.routes_sent += sent
+            self.last_route_at = dt_util.utcnow()
+            self.last_route_error = None
+            return sent
+
     def diagnostics(self) -> dict[str, Any]:
         return {
             "delivery_mode": self.delivery_mode,
@@ -306,4 +428,8 @@ class DriveLogManager:
             "outage_since": self.outage.since,
             "phone_issue_open": self.phone_issue_open,
             "queue": self.queue.diagnostics(),
+            "route_entity": self.route_entity(),
+            "routes_sent": self.routes_sent,
+            "last_route_at": self.last_route_at.isoformat() if self.last_route_at else None,
+            "last_route_error": self.last_route_error,
         }

@@ -3,16 +3,20 @@
   "name": "SMGD DriveLog",
   "after_dependencies": [
     "mobile_app",
-    "notify"
+    "notify",
+    "recorder"
   ],
   "codeowners": [
     "@MANNEGARD"
   ],
   "config_flow": true,
+  "dependencies": [
+    "http"
+  ],
   "documentation": "https://github.com/MANNEGARD/TEST/blob/HEAD/docs/home-assistant.md",
   "integration_type": "service",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/MANNEGARD/TEST/issues",
   "requirements": [],
-  "version": "1.7.0"
+  "version": "1.8.0"
 }
