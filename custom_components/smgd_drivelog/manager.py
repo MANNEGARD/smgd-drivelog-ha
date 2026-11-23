@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -56,6 +57,8 @@ from .core import (
     route_points,
     select_service,
     should_request_location,
+    summary_changed,
+    summary_stamp,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -96,6 +99,10 @@ class DriveLogManager:
         self.server_version: str | None = None
         self.poll_interval: int | None = None
         self.last_outbox_at: datetime | None = None
+        # 1.12.1: sensorernas nyckeltal hämtas direkt när DriveLog säger att de har ändrats.
+        self.on_summary_changed: Callable[[], Awaitable[None]] | None = None
+        self._summary_stamp: str | None = None
+        self.summary_refreshes = 0
         self.last_heartbeat_at: datetime | None = None
         self.last_error: str | None = None
         self.delivered_count = 0
@@ -309,6 +316,15 @@ class DriveLogManager:
             self.delivery_mode = body.get("delivery_mode") if isinstance(body, dict) else None
             self.tracking = bool(body.get("track_position")) if isinstance(body, dict) else False
             self._tracking_at = time.time()
+            stamp = summary_stamp(body)
+            if summary_changed(self._summary_stamp, stamp) and self.on_summary_changed is not None:
+                self.summary_refreshes += 1
+                try:
+                    await self.on_summary_changed()
+                except Exception:  # noqa: BLE001 – sensorerna får aldrig stoppa notiserna
+                    _LOGGER.debug("Nyckeltalen kunde inte hämtas direkt; nästa ordinarie hämtning tar dem", exc_info=True)
+            if stamp is not None:
+                self._summary_stamp = stamp
             deliveries, failed = parse_outbox(
                 body, self.server_notify_service or self.configured_service, available=self.available_services()
             )
@@ -487,6 +503,7 @@ class DriveLogManager:
             "last_heartbeat_at": self.last_heartbeat_at.isoformat() if self.last_heartbeat_at else None,
             "last_error": self.last_error,
             "delivered_count": self.delivered_count,
+            "summary_refreshes": self.summary_refreshes,
             "auth_failed": self.auth_failed,
             "outage_since": self.outage.since,
             "phone_issue_open": self.phone_issue_open,

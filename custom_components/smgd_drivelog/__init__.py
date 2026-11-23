@@ -90,6 +90,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: DriveLogConfigEntry) -> 
 
     coordinator = DriveLogCoordinator(hass, entry, client)
     manager = DriveLogManager(hass, entry, client)
+    # Sensorerna följer DriveLog: när utkorgen (var 30:e sekund) visar att något har ändrats hämtas nyckeltalen direkt.
+    manager.on_summary_changed = coordinator.async_request_refresh
     await manager.async_load()
     entry.runtime_data = DriveLogData(client=client, coordinator=coordinator, manager=manager)
 

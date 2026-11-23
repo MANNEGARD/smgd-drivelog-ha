@@ -731,3 +731,21 @@ def should_request_location(
     if not tracking or tracking_at is None or now - tracking_at > stale_after:
         return False
     return last_request is None or now - last_request >= interval - 0.5
+
+
+# ----------------------------------------------------------------------------- nyckeltalen direkt efter en ändring (1.12.1)
+
+
+def summary_stamp(body: Any) -> str | None:
+    """Ändringsmärket i utkorgens svar (``summary_stamp``), eller None från en äldre DriveLog."""
+    stamp = body.get("summary_stamp") if isinstance(body, dict) else None
+    return stamp if isinstance(stamp, str) and 0 < len(stamp) <= 200 else None
+
+
+def summary_changed(previous: str | None, current: str | None) -> bool:
+    """Ska nyckeltalen hämtas nu? Bara när märket är känt sedan förut och har ändrats.
+
+    Första märket efter en start räknas inte som en ändring: sensorerna har just hämtats.
+    """
+    return previous is not None and current is not None and previous != current
+
