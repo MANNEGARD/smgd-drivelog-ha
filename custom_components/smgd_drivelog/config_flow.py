@@ -31,6 +31,7 @@ from .const import (
     CONF_COLLECT_ROUTE,
     CONF_LOCATION_INTERVAL,
     CONF_NOTIFY_SERVICE,
+    CONF_PRICE_ENTITY,
     CONF_ROUTE_ENTITY,
     CONF_SEND_FEEDBACK,
     CONF_TOKEN,
@@ -203,6 +204,7 @@ class DriveLogOptionsFlow(OptionsFlow):
                         CONF_COLLECT_ROUTE: bool(user_input.get(CONF_COLLECT_ROUTE, True)),
                         CONF_ROUTE_ENTITY: user_input.get(CONF_ROUTE_ENTITY) or None,
                         CONF_LOCATION_INTERVAL: int(user_input.get(CONF_LOCATION_INTERVAL, DEFAULT_LOCATION_INTERVAL)),
+                        CONF_PRICE_ENTITY: user_input.get(CONF_PRICE_ENTITY) or None,
                     }
                 )
         default_service = f"notify.{current[CONF_NOTIFY_SERVICE]}" if current.get(CONF_NOTIFY_SERVICE) else None
@@ -226,4 +228,10 @@ class DriveLogOptionsFlow(OptionsFlow):
             fields[vol.Optional(CONF_ROUTE_ENTITY, default=current[CONF_ROUTE_ENTITY])] = tracker
         else:
             fields[vol.Optional(CONF_ROUTE_ENTITY)] = tracker
+        # 1.14.0: elpris-sensorn (t.ex. Nord Pool) för kostnaden för hemmaladdningar.
+        price = EntitySelector(EntitySelectorConfig(domain="sensor"))
+        if current.get(CONF_PRICE_ENTITY):
+            fields[vol.Optional(CONF_PRICE_ENTITY, default=current[CONF_PRICE_ENTITY])] = price
+        else:
+            fields[vol.Optional(CONF_PRICE_ENTITY)] = price
         return self.async_show_form(step_id="init", data_schema=vol.Schema(fields), errors=errors)

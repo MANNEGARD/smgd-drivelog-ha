@@ -25,6 +25,7 @@ from .const import (
     CONF_COLLECT_ROUTE,
     CONF_LOCATION_INTERVAL,
     CONF_NOTIFY_SERVICE,
+    CONF_PRICE_ENTITY,
     CONF_ROUTE_ENTITY,
     CONF_SEND_FEEDBACK,
     DEFAULT_LOCATION_INTERVAL,
@@ -46,6 +47,7 @@ from .core import (
     build_ack,
     build_callback_payload,
     build_heartbeat,
+    build_price_payload,
     feedback_message,
     location_interval,
     missing_phone_count,
@@ -54,6 +56,7 @@ from .core import (
     parse_route_requests,
     phone_issue_action,
     platform_from_os,
+    price_should_send,
     route_points,
     select_service,
     should_request_location,
@@ -109,6 +112,13 @@ class DriveLogManager:
         self.auth_failed = False
         self.outage = OutageTracker()
         self.phone_issue_open = False
+        # 1.14.0: elpriset från en vald sensor (t.ex. Nord Pool).
+        self._price_lock = asyncio.Lock()
+        self._last_price: dict[str, Any] | None = None
+        self._last_price_sent: float | None = None
+        self.prices_sent = 0
+        self.last_price_status: str | None = None
+        self.last_price_error: str | None = None
 
     # ------------------------------------------------------------------ lagring
 
@@ -491,6 +501,47 @@ class DriveLogManager:
             self.last_route_error = None
             return sent
 
+    # ------------------------------------------------------------------ elpris (1.14.0)
+
+    def price_entity(self) -> str | None:
+        """Elpris-sensorn som ägaren valt i alternativen, eller None."""
+        value = self.entry.options.get(CONF_PRICE_ENTITY)
+        return value if isinstance(value, str) and value.startswith("sensor.") else None
+
+    async def async_send_price(self, _now: datetime | None = None) -> bool:
+        """Skickar elpris-sensorns värde, enhet och (om sensorn har dem) dagens och morgondagens timpriser.
+
+        Körs när sensorn ändras och minst var 15:e minut. Ett fel här påverkar aldrig notiserna."""
+        entity_id = self.price_entity()
+        if entity_id is None:
+            return False
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return False
+        payload = build_price_payload(entity_id, state.state, dict(state.attributes))
+        async with self._price_lock:
+            if not price_should_send(self._last_price, payload, self._last_price_sent, time.time()):
+                return False
+            assert payload is not None
+            try:
+                result = await self.client.electricity_price(payload)
+            except DriveLogAuthError as err:
+                self._auth_failed(err)
+                return False
+            except DriveLogError as err:
+                self.last_price_error = str(err)
+                return False
+            self._last_price, self._last_price_sent = payload, time.time()
+            self.prices_sent += 1
+            self.last_price_status = result.get("status") if isinstance(result, dict) else None
+            self.last_price_error = None
+            if self.last_price_status == "unsupported_unit":
+                _LOGGER.warning(
+                    "SMGD DriveLog kunde inte tolka enheten för %s (%s); välj en sensor i kr eller öre per kWh",
+                    entity_id, payload.get("unit"),
+                )
+            return True
+
     def diagnostics(self) -> dict[str, Any]:
         return {
             "delivery_mode": self.delivery_mode,
@@ -515,4 +566,8 @@ class DriveLogManager:
             "tracking": self.tracking,
             "location_interval": self.location_interval,
             "location_requests": self.location_requests,
+            "price_entity": self.price_entity(),
+            "prices_sent": self.prices_sent,
+            "last_price_status": self.last_price_status,
+            "last_price_error": self.last_price_error,
         }

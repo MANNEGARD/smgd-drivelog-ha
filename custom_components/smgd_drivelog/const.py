@@ -7,7 +7,7 @@ from typing import Final
 
 DOMAIN: Final = "smgd_drivelog"
 NAME: Final = "SMGD DriveLog"
-INTEGRATION_VERSION: Final = "1.13.2"
+INTEGRATION_VERSION: Final = "1.14.0"
 
 CONF_URL: Final = "url"
 CONF_TOKEN: Final = "token"
@@ -16,6 +16,7 @@ CONF_SEND_FEEDBACK: Final = "send_feedback"
 CONF_COLLECT_ROUTE: Final = "collect_route"  # 1.8.0: telefonens resväg under färd
 CONF_LOCATION_INTERVAL: Final = "location_interval"  # 1.8.2: sekunder mellan positionsbegäran under färd
 CONF_ROUTE_ENTITY: Final = "route_entity"  # device_tracker; tomt = telefonen som får notiserna
+CONF_PRICE_ENTITY: Final = "price_entity"  # 1.14.0: elpris-sensor (t.ex. Nord Pool); tomt = inget elpris
 
 # Händelsen som Companion-appen skickar när användaren trycker på en notisknapp.
 EVENT_NOTIFICATION_ACTION: Final = "mobile_app_notification_action"
@@ -26,6 +27,7 @@ SUMMARY_INTERVAL: Final = timedelta(minutes=5)
 DEFAULT_POLL_INTERVAL: Final = timedelta(seconds=30)  # utkorg och svarskö
 HEARTBEAT_INTERVAL: Final = timedelta(minutes=5)
 ROUTE_INTERVAL: Final = timedelta(minutes=5)
+PRICE_INTERVAL: Final = timedelta(minutes=15)  # 1.14.0: elpriset skickas minst så här ofta
 DEFAULT_LOCATION_INTERVAL: Final = 10  # sekunder; Simons val 2026-11-22
 MIN_LOCATION_INTERVAL: Final = 10
 MAX_LOCATION_INTERVAL: Final = 300

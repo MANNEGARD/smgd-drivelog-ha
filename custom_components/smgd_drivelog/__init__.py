@@ -20,7 +20,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
@@ -32,6 +32,7 @@ from .const import (
     DOMAIN,
     EVENT_NOTIFICATION_ACTION,
     HEARTBEAT_INTERVAL,
+    PRICE_INTERVAL,
     ROUTE_INTERVAL,
     SERVICE_FLUSH_QUEUE,
     STORAGE_VERSION,
@@ -126,6 +127,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: DriveLogConfigEntry) -> 
             name=f"{DOMAIN} position under färd",
         )
     )
+    # 1.14.0: elpriset när sensorn ändras och minst var 15:e minut.
+    entry.async_on_unload(
+        async_track_time_interval(hass, manager.async_send_price, PRICE_INTERVAL, name=f"{DOMAIN} elpris")
+    )
+    if (price_entity := manager.price_entity()) is not None:
+
+        @callback
+        def _on_price(_event) -> None:
+            entry.async_create_background_task(hass, manager.async_send_price(), name=f"{DOMAIN} elpris ändrat")
+
+        entry.async_on_unload(async_track_state_change_event(hass, [price_entity], _on_price))
+        entry.async_create_background_task(hass, manager.async_send_price(), name=f"{DOMAIN} första elpris")
     entry.async_create_background_task(hass, manager.async_tick(), name=f"{DOMAIN} första hämtning")
     entry.async_create_background_task(hass, manager.async_sync_routes(), name=f"{DOMAIN} första resväg")
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))

@@ -10,6 +10,7 @@ import aiohttp
 
 from .core import (
     PATH_CALLBACK,
+    PATH_ELECTRICITY_PRICE,
     PATH_HEARTBEAT,
     PATH_OUTBOX,
     PATH_OUTBOX_ACK,
@@ -97,3 +98,6 @@ class DriveLogApiClient:
 
     async def route(self, body: dict[str, Any]) -> dict[str, Any]:
         return await self._request("POST", PATH_ROUTE, body)
+
+    async def electricity_price(self, body: dict[str, Any]) -> dict[str, Any]:
+        return await self._request("POST", PATH_ELECTRICITY_PRICE, body)

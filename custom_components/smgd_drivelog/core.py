@@ -31,6 +31,7 @@ PATH_HEARTBEAT = f"{API_PREFIX}/ha/heartbeat"
 PATH_CALLBACK = f"{API_PREFIX}/ha/callback"
 PATH_ROUTE_REQUESTS = f"{API_PREFIX}/ha/route/requests"
 PATH_ROUTE = f"{API_PREFIX}/ha/route"
+PATH_ELECTRICITY_PRICE = f"{API_PREFIX}/ha/electricity-price"  # 1.14.0
 
 REQUIRED_SCOPE = "ha"
 
@@ -749,3 +750,106 @@ def summary_changed(previous: str | None, current: str | None) -> bool:
     """
     return previous is not None and current is not None and previous != current
 
+
+
+# ----------------------------------------------------------------------------- elpris (1.14.0)
+
+# Attribut med dagens och morgondagens priser (custom Nord Pool: raw_today/raw_tomorrow). Core Nord Pool har
+# inga sådana attribut; då skickas bara det aktuella värdet. Andra integrationer har ibland andra nyckelnamn.
+PRICE_SERIES_ATTRS = ("raw_today", "raw_tomorrow")
+_START_KEYS = ("start", "start_time", "startsAt", "starts_at", "hour")
+_END_KEYS = ("end", "end_time", "endsAt", "ends_at")
+_VALUE_KEYS = ("value", "price", "total")
+MAX_PRICE_POINTS = 400
+PRICE_RESEND_SECONDS = 15 * 60  # minst var 15:e minut, även utan ändring
+
+
+def _price_number(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        num = float(value)
+    elif isinstance(value, str):
+        try:
+            num = float(value.strip().replace(",", "."))
+        except ValueError:
+            return None
+    else:
+        return None
+    return num if num == num and abs(num) < 1e7 else None  # NaN och orimliga tal bort
+
+
+def _aware_time(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str) and value:
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    return dt if dt.tzinfo is not None else None  # utan tidszon går tiden inte att placera säkert
+
+
+def price_series(attributes: Any) -> list[dict[str, Any]]:
+    """Dagens och morgondagens priser ur sensorns attribut → [{start, end, value}] (ISO-tider med tidszon).
+
+    Tålig: okända former och poster utan tidszon hoppas över. Saknas ``end`` används nästa posts start."""
+    if not isinstance(attributes, dict):
+        return []
+    points: list[tuple[datetime, datetime | None, float]] = []
+    for attr in PRICE_SERIES_ATTRS:
+        items = attributes.get(attr)
+        if not isinstance(items, list):
+            continue
+        for item in items[:MAX_PRICE_POINTS]:
+            if not isinstance(item, dict):
+                continue
+            start = next((_aware_time(item.get(k)) for k in _START_KEYS if item.get(k) is not None), None)
+            end = next((_aware_time(item.get(k)) for k in _END_KEYS if item.get(k) is not None), None)
+            value = next((_price_number(item.get(k)) for k in _VALUE_KEYS if item.get(k) is not None), None)
+            if start is None or value is None:
+                continue
+            points.append((start, end, value))
+    points.sort(key=lambda p: p[0])
+    out: list[dict[str, Any]] = []
+    for i, (start, end, value) in enumerate(points):
+        if end is None:
+            end = points[i + 1][0] if i + 1 < len(points) else None
+        if end is None or end <= start:
+            continue
+        out.append({"start": start.isoformat(), "end": end.isoformat(), "value": value})
+    return out[:MAX_PRICE_POINTS]
+
+
+def build_price_payload(entity_id: str, state: Any, attributes: Any) -> dict[str, Any] | None:
+    """Kroppen till ``POST /ha/electricity-price`` ur elpris-sensorns tillstånd.
+
+    Värdet och enheten skickas som de är; DriveLog räknar om enheten (öre/kr, kWh/MWh) och avvisar det som inte
+    går att tolka. None när sensorn varken har ett värde eller en serie (t.ex. ``unavailable``)."""
+    attrs = attributes if isinstance(attributes, dict) else {}
+    value = _price_number(state)
+    series = price_series(attrs)
+    if value is None and not series:
+        return None
+    unit = attrs.get("unit_of_measurement")
+    currency = attrs.get("currency")
+    return {
+        "entity_id": str(entity_id)[:120],
+        "value": value,
+        "unit": str(unit)[:40] if isinstance(unit, str) else None,
+        "currency": str(currency)[:10] if isinstance(currency, str) else None,
+        "price_in_cents": attrs.get("price_in_cents") is True,
+        "series": series,
+    }
+
+
+def price_should_send(previous: dict[str, Any] | None, current: dict[str, Any] | None, last_sent: float | None,
+                      now: float) -> bool:
+    """Skicka när värdet (eller serien) ändrats, och minst var 15:e minut."""
+    if current is None:
+        return False
+    if previous != current or last_sent is None:
+        return True
+    return now - last_sent >= PRICE_RESEND_SECONDS

@@ -55,12 +55,14 @@
           "send_feedback": "Visa återkoppling när ett svar inte gick igenom",
           "collect_route": "Spara telefonens resväg under färd",
           "route_entity": "Telefonens position (device_tracker)",
-          "location_interval": "Be telefonen om position under färd (sekunder)"
+          "location_interval": "Be telefonen om position under färd (sekunder)",
+          "price_entity": "Elpris-sensor (valfri)"
         },
         "data_description": {
           "notify_service": "Används om ingen enhet är vald i DriveLog.",
           "route_entity": "Bara positioner inom en resa skickas till DriveLog. Tomt = telefonen som får notiserna.",
-          "location_interval": "Hur ofta telefonen ombeds om en ny position medan bilen körs. Vid korta intervall kan iOS hoppa över en del."
+          "location_interval": "Hur ofta telefonen ombeds om en ny position medan bilen körs. Vid korta intervall kan iOS hoppa över en del.",
+          "price_entity": "T.ex. Nord Pool. DriveLog använder priset (kr eller öre per kWh, med timpriser när sensorn har dem) för att räkna ut vad hemmaladdningarna kostade."
         }
       }
     },
